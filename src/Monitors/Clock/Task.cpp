@@ -1,5 +1,5 @@
 //***************************************************************************
-// Copyright 2007-2014 Universidade do Porto - Faculdade de Engenharia      *
+// Copyright 2007-2015 Universidade do Porto - Faculdade de Engenharia      *
 // Laboratório de Sistemas e Tecnologia Subaquática (LSTS)                  *
 //***************************************************************************
 // This file is part of DUNE: Unified Navigation Environment.               *
@@ -20,7 +20,7 @@
 // distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF     *
 // ANY KIND, either express or implied. See the Licence for the specific    *
 // language governing permissions and limitations at                        *
-// https://www.lsts.pt/dune/licence.                                        *
+// http://ec.europa.eu/idabc/eupl.html.                                     *
 //***************************************************************************
 // Author: Ricardo Martins                                                  *
 //***************************************************************************
@@ -66,6 +66,7 @@ namespace Monitors
       double max_boot_tout;
       double max_clock_offs;
       std::string hw_sync_cmd;
+      bool change_log;
     };
 
     struct Task: public DUNE::Tasks::Task
@@ -112,6 +113,10 @@ namespace Monitors
         param("Hardware Clock Synchronization Command", m_args.hw_sync_cmd)
         .description("System command to execute everytime the clock is synchronized");
 
+        param("Change Log", m_args.change_log)
+        .defaultValue("false")
+        .description("Change log file after synchronization");
+
         // Initialize entity states.
         setEntityState(IMC::EntityState::ESTA_BOOT, Status::CODE_SYNCING);
 
@@ -128,6 +133,10 @@ namespace Monitors
       void
       consume(const IMC::GpsFix* msg)
       {
+        // Only use fixes from local system.
+        if (msg->getSource() != getSystemId())
+          return;
+
         // Return if clock is already synched.
         if (m_clock_synched)
           return;
@@ -169,6 +178,17 @@ namespace Monitors
             setTime(new_time);
             setEntityState(IMC::EntityState::ESTA_NORMAL, Status::CODE_SYNCHED);
             m_clock_synched = true;
+
+            m_cc.op = IMC::ClockControl::COP_SYNC_DONE;
+            m_cc.clock = new_time;
+            dispatch(m_cc);
+
+            if (m_args.change_log)
+            {
+              IMC::LoggingControl lc;
+              lc.op = IMC::LoggingControl::COP_REQUEST_START;
+              dispatch(lc);
+            }
           }
           else
           {

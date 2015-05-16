@@ -1,5 +1,5 @@
 //***************************************************************************
-// Copyright 2007-2014 Universidade do Porto - Faculdade de Engenharia      *
+// Copyright 2007-2015 Universidade do Porto - Faculdade de Engenharia      *
 // Laboratório de Sistemas e Tecnologia Subaquática (LSTS)                  *
 //***************************************************************************
 // This file is part of DUNE: Unified Navigation Environment.               *
@@ -20,7 +20,7 @@
 // distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF     *
 // ANY KIND, either express or implied. See the Licence for the specific    *
 // language governing permissions and limitations at                        *
-// https://www.lsts.pt/dune/licence.                                        *
+// http://ec.europa.eu/idabc/eupl.html.                                     *
 //***************************************************************************
 // Author: Eduardo Marques                                                  *
 //***************************************************************************
@@ -62,10 +62,6 @@ namespace DUNE
       //! Entity reservation callback.
       void
       onEntityReservation(void);
-
-      //! Entity reservation callback.
-      void
-      onEntityResolution(void);
 
       //! Consumer for Brake message.
       //! @param brake message to consume.
@@ -118,12 +114,6 @@ namespace DUNE
       //! class implementation MUST be called.
       virtual void
       onResourceInitialization(void);
-
-      //! On resource aquisition
-      //! This can be overriden but in that case this parent
-      //! class implementation MUST be called.
-      virtual void
-      onResourceAcquisition(void);
 
       //! On resource aquisition
       //! This can be overriden but in that case this parent
@@ -234,7 +224,6 @@ namespace DUNE
       virtual void
       step(const IMC::EstimatedState& state, const TrackingState& ts) = 0;
 
-
       //! Default implementation for loiter control,
       //! that can be  overriden for a controller specific implementation.
       //! @param state navigation state
@@ -273,6 +262,18 @@ namespace DUNE
       disableControlLoops(uint32_t mask)
       {
         configureControlLoops(IMC::ControlLoops::CL_DISABLE, mask);
+      }
+
+      //! Handler for EstimatedState source id filter.
+      //! This is called when an EstimatedState is received.
+      //! By default it only passes EstimatedState messages from the system itself.
+      //! @param[in] es EstimatedState message.
+      //! @return true if the message is NOT allowed to pass.
+      virtual bool
+      sourceFilter(const IMC::EstimatedState* es)
+      {
+        // Allow only EstimatedState from the same vehicle.
+        return es->getSource() != getSystemId();
       }
 
       //! Task method.
@@ -341,6 +342,14 @@ namespace DUNE
       //! Deactivate bottom tracker
       void
       deactivateBottomTracker(void);
+
+      //! Is the system performing bottom tracking ?
+      //! @return true if it is bottom tracking, false otherwise.
+      bool
+      isTrackingBottom(void)
+      {
+        return m_btd.enabled && (m_btrack != NULL);
+      }
 
       //! Data for along-track error monitoring.
       struct ATMData

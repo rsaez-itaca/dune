@@ -1,5 +1,5 @@
 //***************************************************************************
-// Copyright 2007-2014 Universidade do Porto - Faculdade de Engenharia      *
+// Copyright 2007-2015 Universidade do Porto - Faculdade de Engenharia      *
 // Laboratório de Sistemas e Tecnologia Subaquática (LSTS)                  *
 //***************************************************************************
 // This file is part of DUNE: Unified Navigation Environment.               *
@@ -20,7 +20,7 @@
 // distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF     *
 // ANY KIND, either express or implied. See the Licence for the specific    *
 // language governing permissions and limitations at                        *
-// https://www.lsts.pt/dune/licence.                                        *
+// http://ec.europa.eu/idabc/eupl.html.                                     *
 //***************************************************************************
 // Author: Eduardo Marques                                                  *
 //***************************************************************************
@@ -213,7 +213,9 @@ namespace DUNE
     }
 
     PathController::~PathController(void)
-    { }
+    {
+      Memory::clear(m_btrack);
+    }
 
     void
     PathController::onUpdateParameters(void)
@@ -250,10 +252,17 @@ namespace DUNE
 
           if (paramChanged(m_btd.args.control_period))
             m_btd.args.control_period = 1.0 / m_btd.args.control_period;
+
+          if (m_btrack == NULL)
+          {
+            m_btd.args.task = this;
+            m_btrack = new BottomTracker(&m_btd.args);
+          }
         }
         else
         {
           deactivateBottomTracker();
+          Memory::clear(m_btrack);
         }
       }
     }
@@ -265,31 +274,14 @@ namespace DUNE
     }
 
     void
-    PathController::onResourceAcquisition(void)
-    {
-      if (m_btd.enabled)
-      {
-        m_btd.args.task = this;
-        m_btrack = new BottomTracker(&m_btd.args);
-      }
-    }
-
-    void
     PathController::onResourceRelease(void)
-    {
-      Memory::clear(m_btrack);
-    }
+    { }
 
     void
     PathController::onEntityReservation(void)
     {
-      m_bt_entity = reserveEntity<DUNE::Entities::BasicEntity>("Bottom Track");
+      m_bt_entity = reserveEntity<DUNE::Entities::BasicEntity>(Utils::String::str("%s - Bottom Track", getEntityLabel()));
       m_btd.args.entity = m_bt_entity;
-    }
-
-    void
-    PathController::onEntityResolution(void)
-    {
     }
 
     void
@@ -404,7 +396,7 @@ namespace DUNE
         m_zref.value = dpath->end_z;
         m_zref.z_units = dpath->end_z_units;
 
-        if (m_btd.enabled)
+        if (isTrackingBottom())
           m_btrack->onDesiredZ(&m_zref, true);
         else
           dispatch(m_zref);
@@ -537,32 +529,32 @@ namespace DUNE
     void
     PathController::consume(const IMC::Distance* dist)
     {
-      if (m_btd.enabled)
+      if (isTrackingBottom())
         m_btrack->onDistance(dist);
     }
 
     void
     PathController::consume(const IMC::DesiredZ* zref)
     {
-      if (m_btd.enabled)
+      if (isTrackingBottom())
         m_btrack->onDesiredZ(zref);
     }
 
     void
     PathController::consume(const IMC::DesiredSpeed* dspeed)
     {
-      if (m_btd.enabled)
+      if (isTrackingBottom())
         m_btrack->onDesiredSpeed(dspeed);
     }
 
     void
     PathController::consume(const IMC::EstimatedState* es)
     {
-      // Allow only EstimatedState from the same vehicle.
-      if (es->getSource() != getSystemId())
+      // Pass EstimatedStates from the specified vehicle.
+      if (sourceFilter(es))
         return;
 
-      if (m_btd.enabled)
+      if (isTrackingBottom())
       {
         try
         {
@@ -940,7 +932,7 @@ namespace DUNE
       onPathActivation();
       updateEntityState();
 
-      if (m_btd.enabled)
+      if (isTrackingBottom())
         m_btrack->activate();
     }
 
@@ -956,7 +948,7 @@ namespace DUNE
       onPathDeactivation();
       updateEntityState();
 
-      if (m_btd.enabled)
+      if (isTrackingBottom())
         deactivateBottomTracker();
     }
 
