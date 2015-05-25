@@ -34,7 +34,7 @@ namespace Autonomy
   {
     using DUNE_NAMESPACES;
 
-    struct Task: public DUNE::Tasks::Periodic
+    struct Task: public DUNE::Tasks::Task
     {
 
       IMC::AssetStatus m_status;
@@ -45,7 +45,7 @@ namespace Autonomy
       //! @param[in] name task name.
       //! @param[in] ctx context.
       Task(const std::string& name, Tasks::Context& ctx):
-        DUNE::Tasks::Periodic(name, ctx)
+        DUNE::Tasks::Task(name, ctx)
       {
         param(DTR_RT("Publication Period"), m_period)
               .units(Units::Second)
@@ -60,11 +60,6 @@ namespace Autonomy
       }
 
       void
-      onUpdateParameters()
-      {
-        setFrequency(1.0/m_period);
-      }
-      void
       consume(const IMC::EstimatedState * msg)
       {
         m_status.alt = msg->alt;
@@ -74,7 +69,6 @@ namespace Autonomy
         m_status.lon = msg->lon;
         double tmp = 0;
         WGS84::displace(msg->x, msg->y, 0, &m_status.lat, &m_status.lon, &tmp);
-
         m_ready = true;
       }
 
@@ -95,17 +89,24 @@ namespace Autonomy
       void
       consume(const IMC::FuelLevel * msg)
       {
-        std::cout << msg->confidence << std::endl;
         m_status.fuel = msg->value;
       }
 
       void
-      task(void)
+      onMain(void)
       {
-        if (m_ready)
+        double last_sent = 0;
+        while(!stopping())
         {
-          dispatch(m_status);
-          m_status.toText(std::cout);
+          waitForMessages(1.0);
+          double time_ellapsed = Time::Clock::get() - last_sent;
+          if (m_ready && time_ellapsed > m_period)
+          {
+            dispatch(m_status);
+            last_sent = Time::Clock::get();
+
+            m_status.toText(std::cout);
+          }
         }
       }
     };
