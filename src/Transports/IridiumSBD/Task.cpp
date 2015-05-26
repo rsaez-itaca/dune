@@ -58,6 +58,8 @@ namespace Transports
       unsigned max_tx_rate;
       //! Power channel name.
       std::string pwr_name;
+      //! RockBlock address where to send the messages
+      int iridium_destination;
     };
 
     struct Task: public DUNE::Tasks::Task
@@ -84,7 +86,8 @@ namespace Transports
         DUNE::Tasks::Task(name, ctx),
         m_uart(NULL),
         m_driver(NULL),
-        m_tx_request(NULL)
+        m_tx_request(NULL),
+		m_queued_mt(0)
       {
         paramActive(Tasks::Parameter::SCOPE_GLOBAL,
                     Tasks::Parameter::VISIBILITY_USER);
@@ -113,6 +116,11 @@ namespace Transports
         .units(Units::Second)
         .defaultValue("0")
         .description("");
+
+        param("RockBlock Destination", m_args.iridium_destination)
+        .defaultValue("-1")
+        .visibility(Tasks::Parameter::VISIBILITY_USER)
+        .description("RockBlock device where to send all messages or -1 for default HTTP post.");
 
         bind<IMC::IridiumMsgTx>(this);
         bind<IMC::IoEvent>(this);
@@ -229,8 +237,30 @@ namespace Transports
         debug("queueing message");
         unsigned src_adr = msg->getSource();
         unsigned src_eid = msg->getSourceEntity();
+
         TxRequest* request = new TxRequest(src_adr, src_eid, msg->req_id,
-                                           msg->ttl, msg->data);
+        		msg->ttl, msg->data);
+
+        if (m_args.iridium_destination != -1)
+        {
+          debug("queue p2p iridium message");
+          std::vector<char> tmp;
+          // escape sequence indicating that message is to sent to rockblock device
+          tmp.push_back(52);
+          tmp.push_back(42);
+          // encode destination using 3 bytes (big endian)
+          int dest = m_args.iridium_destination;
+          tmp.push_back(dest % 256);
+          dest /= 256;
+          tmp.push_back(dest % 256);
+          dest /= 256;
+          tmp.push_back(dest % 256);
+          tmp.insert(tmp.end(), msg->data.begin(), msg->data.end());
+          free(request);
+          // create a tx request with these 5 bytes prepended.
+          request = new TxRequest(src_adr, src_eid, msg->req_id,
+            msg->ttl, tmp);
+        }
 
         enqueueTxRequest(request);
         sendTxRequestStatus(request, IMC::IridiumTxStatus::TXSTATUS_QUEUED);
