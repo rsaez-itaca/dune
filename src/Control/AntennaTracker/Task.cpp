@@ -133,7 +133,7 @@ namespace Control
 
         // Generating PTU commands.
         std::stringstream ss;
-        IMC:RemoteActions ra;
+        IMC::RemoteActions ra;
         ss << "Pan=" << azimuth - m_yaw << ";Tilt=" << elevation - Math::c_half_pi << ";";
         ra.actions = ss.str();
         dispatch(ra);
