@@ -62,30 +62,25 @@ namespace Control
       //! PTU base states and validity flag.
       IMC::EstimatedState m_ptu_state;
       bool m_ptu_state_valid;
-      Matrix m_ptu_pos;
-      Matrix m_ptu_rot;
       //! PTU tray (sensor/antenna) states and validity flag.
       bool m_ptu_tray_state_valid;
-      Matrix m_ptu_tray_state;
+      IMC::EulerAngles m_ptu_tray_state;
       //! Target states and validity flag.
       IMC::EstimatedState m_trg_state;
       bool m_trg_state_valid;
-      Matrix m_trg_pos;
-      Matrix m_trg_vel;
 
       // System IDs
       unsigned m_trg_id;
 
+      //! Controller state
+      bool m_ctrl_active;
+
       Task(const std::string& name, Tasks::Context& ctx):
         DUNE::Tasks::Task(name, ctx),
-        m_ptu_state_valid(false),
-        m_trg_state_valid(false),
-        m_ptu_tray_state_valid(false),
-        m_ptu_pos(3,1),
-        m_ptu_rot(3,3),
-        m_ptu_tray_state(3,1),
-        m_trg_pos(3,1),
-        m_trg_vel(3,1)
+        m_ptu_state_valid( false ),
+        m_trg_state_valid( false ),
+        m_ptu_tray_state_valid( false ),
+        m_ctrl_active( false )
       {
         param("Target Vehicle", m_args.trg_name)
         .description("Vehicle to be tracked")
@@ -163,22 +158,46 @@ namespace Control
           if ( paramChanged( m_args.ptu_lon ) )
             m_ptu_state.lon = Math::Angles::radians( m_args.ptu_lon );
         }
-     }
+      }
+
+      void
+      onRequestActivation(void)
+      {
+        spew("on request activation");
+        // Check the PTU control activation conditions
+        if ( m_trg_state_valid && ( m_args.ptu_fixed ||  m_ptu_state_valid ) &&
+             ( !m_args.ptu_ctrl_mode  || m_ptu_tray_state_valid ) )
+        {
+          m_ctrl_active = true;
+          war("PTU controller is activating");
+          activate();
+        }
+      }
+
+      void
+      onRequestDeactivation(void)
+      {
+        spew("on request deactivation");
+        m_ctrl_active = false;
+        war("PTU controller is deactivating");
+        deactivate();
+      }
+
 
       void
       consume(const IMC::EstimatedState* msg)
       {
-        setEntityState(IMC::EntityState::ESTA_NORMAL, Status::CODE_ACTIVE);
+        bool relevant_estate = false;
 
         spew("Estimated State arrived from %d", msg->getSource());
 
         // PTU estimated state for relative position computation
-        if ( ~m_args.ptu_fixed && msg->getSource() == getSystemId() )
+        if ( !m_args.ptu_fixed && msg->getSource() == getSystemId() )
         {
           m_ptu_state = *msg;
           m_ptu_state_valid = true;
 
-          updatePTUOrientation();
+          relevant_estate = true;
         }
 
         // Target estimated state source selection
@@ -187,14 +206,14 @@ namespace Control
           m_trg_state = *msg;
           m_trg_state_valid = true;
 
-          m_trg_pos(0,0) = msg->x;
-          m_trg_pos(1,0) = msg->y;
-          m_trg_pos(2,0) = msg->z;
+          relevant_estate = true;
+        }
 
-          m_trg_vel(0,0) = msg->vx;
-          m_trg_vel(1,0) = msg->vy;
-          m_trg_vel(2,0) = msg->vz;
-
+        if ( relevant_estate )
+        {
+          // Activate the controller, if there is enough data
+          requestActivation();
+          // update the PTU orientation
           updatePTUOrientation();
         }
       }
@@ -206,12 +225,14 @@ namespace Control
         {
           m_trg_state.lat = msg->lat;
           m_trg_state.lon = msg->lon;
+          m_trg_state.height = 0.0;
+          m_trg_state.x = 0.0;
+          m_trg_state.y = 0.0;
           m_trg_state.z = msg->z;
+          m_trg_state.vx = 0.0;
+          m_trg_state.vy = 0.0;
+          m_trg_state.vz = 0.0;
           m_trg_state_valid = true;
-
-          // ToDo - Review and check necessity
-          WGS84::displacement(m_ptu_state.lat, m_ptu_state.lon, -m_ptu_state.height, msg->lat, msg->lon, -msg->z, &m_trg_pos(0,0), &m_trg_pos(1,0));
-          m_trg_pos(2,0) = msg->z + m_ptu_state.height;
 
           updatePTUOrientation();
         }
@@ -224,15 +245,25 @@ namespace Control
         // Pan & tilt angles: PTU tray (sensor/antenna) orientation relative to the PTU base
         // Used in case of angular velocity control
         m_ptu_tray_state_valid = true;
-        m_ptu_tray_state(0,0) = msg->phi;
-        m_ptu_tray_state(1,0) = msg->theta;
+        m_ptu_tray_state.psi = msg->psi;
+        m_ptu_tray_state.theta = msg->theta;
       }
 
       void
       onMain(void)
       {
-        while (!stopping())
+        while ( !stopping() )
         {
+          if ( !m_ctrl_active )
+          {
+            // Reset the PTU position to 0 pan and 0 tilt, if it is not active
+            std::stringstream ss;
+            IMC:RemoteActions ra;
+            ss << "Pan=" << 0.0 << ";Tilt=" << 0.0 << ";";
+            ra.actions = ss.str();
+            dispatch(ra);
+
+          }
           waitForMessages(1.0);
         }
       }
@@ -240,104 +271,117 @@ namespace Control
       void
       updatePTUOrientation( void )
       {
-        // Variables declaration and initialization
-        Matrix rel_pos_ned = Matrix(3,1);
-        Matrix rel_vel_ned = Matrix(3,1);
-        Matrix ptu_rot;
-        Matrix rel_pos_body = Matrix(3,1);
-        Matrix rel_vel_body = Matrix(3,1);
-        Matrix ptu_euler = Matrix(3,1);
-        float cmd_pan;
-        float des_pan_rate;
-        float cmd_pan_rate;
-        float cmd_tilt;
-        float des_tilt_rate;
-        float cmd_tilt_rate;
-        float hor_dist_sq;
-        float hor_dist;
-
         // Orientation computation.
-        if ( m_trg_state_valid )
+        if ( m_ctrl_active )
         {
+          Matrix rel_pos_ned = Matrix( 3, 1 );
+          Matrix rel_vel_ned = Matrix( 3, 1 );
+          Matrix ptu_euler = Matrix( 3, 1 );
+          Matrix ptu_rot;
+
+          // Get the target current geodetic coordinates
+          double trg_lat = m_trg_state.lat;
+          double trg_lon = m_trg_state.lon;
+          double trg_hei = m_trg_state.height;
+          WGS84::displace( m_trg_state.x, m_trg_state.y, m_trg_state.z,
+                           &trg_lat, &trg_lon, &trg_hei );
+
           // Check if it is expecting a fixed predefined position or an estimated state
           if ( m_args.ptu_fixed )
           {
-            WGS84::displacement(m_trg_state.lat, m_trg_state.lon, -m_trg_state.height, m_ptu_state.lat, m_ptu_state.lon, m_args.ptu_height, &m_ptu_pos(0,0), &m_ptu_pos(1,0));
-
-            // Relative position.
-            rel_pos_ned( 0, 0 ) = ( m_trg_pos( 0, 0 ) - m_ptu_pos( 0, 0 ) );
-            rel_pos_ned( 1, 0 ) = ( m_trg_pos( 1, 0 ) - m_ptu_pos( 1, 0 ) );
-            rel_pos_ned( 2, 0 ) = ( m_trg_pos( 2, 0 ) - m_args.ptu_height - m_ptu_state.height );
+            WGS84::displacement( m_args.ptu_lat + m_args.ptu_lat_offset,
+                                 m_args.ptu_lon + m_args.ptu_lon_offset,
+                                 m_args.ptu_height + m_args.ptu_height_offset,
+                                 trg_lat, trg_lon, trg_hei,
+                                 &rel_pos_ned( 0, 0 ), &rel_pos_ned( 1, 0 ), &rel_pos_ned( 2, 0 ) );
 
             // Relative velocity.
-            rel_vel_ned( 0, 0 ) = m_trg_vel( 0, 0 );
-            rel_vel_ned( 1, 0 ) = m_trg_vel( 1, 0 );
-            rel_vel_ned( 2, 0 ) = m_trg_vel( 2, 0 );
+            // ToDo - Target velocity components need to be corrected
+            // to the PTU geodetic reference frame before the subtraction
+            rel_vel_ned( 0, 0 ) = m_trg_state.vx;
+            rel_vel_ned( 1, 0 ) = m_trg_state.vy;
+            rel_vel_ned( 2, 0 ) = m_trg_state.vz;
 
             // PTU base attitude
             ptu_euler( 0, 0 ) = 0;
             ptu_euler( 1, 0 ) = 0;
-            ptu_euler( 2, 0 ) = 0;
+            ptu_euler( 2, 0 ) = m_args.ptu_yaw_offset;
           }
           else
           {
-            // Relative position.
-            rel_pos_ned(0,0) = ( m_trg_pos( 0, 0 ) - m_ptu_state.x );
-            rel_pos_ned(1,0) = ( m_trg_pos( 1, 0 ) - m_ptu_state.y );
-            rel_pos_ned(2,0) = ( m_trg_pos( 2, 0 ) - m_ptu_state.z );
+            // Get the PTU current geodetic coordinates
+            double ptu_lat = m_ptu_state.lat;
+            double ptu_lon = m_ptu_state.lon;
+            double ptu_hei = m_ptu_state.height;
+            WGS84::displace( m_ptu_state.x, m_ptu_state.y, m_ptu_state.z,
+                             &ptu_lat, &ptu_lon, &ptu_hei );
+
+            // Get the target relative position to the PTU in the PTU geodetic reference frame
+            WGS84::displacement( ptu_lat + m_args.ptu_lat_offset,
+                                 ptu_lon + m_args.ptu_lon_offset,
+                                 ptu_hei + m_args.ptu_height_offset,
+                                 trg_lat, trg_lon, trg_hei,
+                                 &rel_pos_ned( 0, 0 ), &rel_pos_ned( 1, 0 ), &rel_pos_ned( 2, 0 ) );
 
             // Relative velocity.
-            rel_vel_ned(0,0) = ( m_trg_vel( 0, 0 ) - m_ptu_state.vx );
-            rel_vel_ned(1,0) = ( m_trg_vel( 1, 0 ) - m_ptu_state.vy );
-            rel_vel_ned(2,0) = ( m_trg_vel( 2, 0 ) - m_ptu_state.vz );
+            // ToDo - Target velocity components need to be corrected
+            // to the PTU geodetic reference frame before the subtraction
+            rel_vel_ned( 0, 0 ) = ( m_trg_state.vx - m_ptu_state.vx );
+            rel_vel_ned( 1, 0 ) = ( m_trg_state.vy - m_ptu_state.vy );
+            rel_vel_ned( 2, 0 ) = ( m_trg_state.vz - m_ptu_state.vz );
 
             // PTU base attitude
-            ptu_euler(0,0) = m_ptu_state.phi;
-            ptu_euler(1,0) = m_ptu_state.theta;
-            ptu_euler(2,0) = m_ptu_state.psi;
+            ptu_euler( 0, 0 ) = m_ptu_state.phi;
+            ptu_euler( 1, 0 ) = m_ptu_state.theta;
+            ptu_euler( 2, 0 ) = m_ptu_state.psi + m_args.ptu_yaw_offset;
           }
 
           // Relative position reference transformation.
-          ptu_rot = Matrix( ptu_euler.toDCM() );
-          m_ptu_rot = transpose( ptu_rot );
-          rel_pos_body = m_ptu_rot * rel_pos_ned;
+          ptu_rot = transpose( Matrix( ptu_euler.toDCM() ) );
+          Matrix rel_pos_body = ptu_rot * rel_pos_ned;
 
           // Pan and tilt computation.
-          hor_dist_sq = (rel_pos_body(0,0) * rel_pos_body(0,0)) + (rel_pos_body(1,0) * rel_pos_body(1,0));
-          cmd_pan = std::atan2(rel_pos_body(1,0), rel_pos_body(0,0));
-          cmd_tilt = std::atan( - rel_pos_body( 2, 0 ) / std::sqrt( hor_dist_sq ) );
+          double hor_dist_sq = rel_pos_body( 0, 0 ) * rel_pos_body( 0, 0 ) +
+                        rel_pos_body( 1, 0 ) * rel_pos_body( 1, 0 );
+          double hor_dist = std::sqrt( hor_dist_sq );
+          double cmd_pan = std::atan2( rel_pos_body( 1, 0 ), rel_pos_body( 0, 0 ) );
+          double cmd_tilt = std::atan( - rel_pos_body( 2, 0 ) / hor_dist );
           // Generating PTU commands.
           std::stringstream ss;
           IMC:RemoteActions ra;
-          if (m_args.ptu_ctrl_mode == 0)
+          if ( m_args.ptu_ctrl_mode == 0 )
           {
             ss << "Pan=" << cmd_pan << ";Tilt=" << cmd_tilt << ";";
             ra.actions = ss.str();
             dispatch(ra);
 
-            debug("PTU in angular control mode");
-            debug("Created tuplelist %s ", ra.actions.c_str());
+            trace("Commanded angles: %s ", ra.actions.c_str() );
           }
           else
           {
             // Relative velocity and horizontal distance.
-            rel_vel_body = (m_ptu_rot * rel_vel_ned);
-            hor_dist = std::sqrt(hor_dist_sq);
+            Matrix rel_vel_body = ( ptu_rot * rel_vel_ned );
             // Target apparent pan and tilt rates computation.
-            des_pan_rate = (rel_pos_body(0,0)*rel_vel_body(1,0) - rel_pos_body(1,0)*rel_vel_body(0,0))/hor_dist_sq;
-            des_tilt_rate = (rel_pos_body(3,0)*(rel_pos_body(0,0)*rel_vel_body(0,0)+ rel_pos_body(1,0)*rel_vel_body(1,0))/hor_dist -
-                             hor_dist*rel_vel_body(2,0))/std::sqrt(hor_dist_sq + rel_pos_body(2,0)*rel_pos_body(2,0));
+            double des_pan_rate = ( rel_pos_body( 0, 0 ) * rel_vel_body( 1, 0 ) -
+                             rel_pos_body( 1, 0 ) * rel_vel_body( 0, 0 ) ) / hor_dist_sq;
+            double des_tilt_rate = ( rel_pos_body( 2, 0 ) *
+                              ( rel_pos_body( 0, 0 ) * rel_vel_body( 0, 0 ) +
+                                rel_pos_body( 1, 0 ) * rel_vel_body( 1, 0 ) ) / hor_dist -
+                              hor_dist * rel_vel_body( 2, 0 ) ) /
+                              ( hor_dist_sq + rel_pos_body( 2, 0) * rel_pos_body( 2, 0 ) );
 
             // Pan and tilt rate commands computation.
-            cmd_pan_rate = des_pan_rate + m_args.pan_rate_gain*(cmd_pan - m_ptu_tray_state(0,0));
-            cmd_tilt_rate = des_tilt_rate + m_args.tilt_rate_gain*(cmd_tilt - m_ptu_tray_state(1,0));
+            double cmd_pan_rate = des_pan_rate + m_args.pan_rate_gain *
+                           ( cmd_pan - m_ptu_tray_state.psi );
+            double cmd_tilt_rate = des_tilt_rate + m_args.tilt_rate_gain *
+                            ( cmd_tilt - m_ptu_tray_state.theta );
 
             ss << "PanRate=" << cmd_pan_rate << ";TiltRate=" << cmd_tilt_rate << ";";
             ra.actions = ss.str();
             dispatch(m_ra);
 
-            debug("PTU in angular rate control mode");
-            debug("Created tuplelist %s ", ra.actions.c_str());
+            trace( "Desired angles: pan=%1.2f; tilt=%1.2f", cmd_pan, cmd_tilt );
+            debug( "Commanded angular velocities %s ", ra.actions.c_str() );
            }
         }
       }
