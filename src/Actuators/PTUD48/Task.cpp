@@ -240,21 +240,21 @@ namespace Actuators
         {
           m_rate_mode = false;
           if ( actions.find( "Pan" ) != actions.end() )
-            m_pan = tuples.get( "Pan" );
+            m_pan = tuples.get( "Pan", 0.0 );
           if ( actions.find( "Tilt" ) != actions.end() )
-            m_tilt = tuples.get( "Tilt" );
+            m_tilt = tuples.get( "Tilt", 0.0 );
         }
         else
         {
           if ( actions.find( "PanRate" ) != actions.end() )
           {
             m_rate_mode = true;
-            m_pan_rate = tuples.get( "PanRate" );
+            m_pan_rate = tuples.get( "PanRate", 0.0 );
           }
           if ( actions.find( "TiltRate" ) != actions.end() )
           {
             m_rate_mode = true;
-            m_tilt_rate = tuples.get( "TiltRate" );
+            m_tilt_rate = tuples.get( "TiltRate", 0.0 );
           }
         }
       }
@@ -295,30 +295,36 @@ namespace Actuators
           int pan_rate_pos = panRadToPos( m_pan_rate );
 
           debug("%f rad", m_pan_rate);
-          debug("%f", pan_rate_pos);
+          debug("%d", pan_rate_pos);
 
           // Send pan command to set the rotation direction.
+          int pan_pos;
           if ( m_pan_rate > 0.0 )
-            createCommand( "pp", PAN_MAX );
+            pan_pos = PAN_MAX;
           else
-            createCommand( "pp", PAN_MIN );
+            pan_pos = PAN_MIN;
+          createCommand( "pp", pan_pos );
           // Send pan rate command.
-          createCommand( "ps", std::abs( pan_rate_pos ) );
+          pan_rate_pos = std::abs( pan_rate_pos );
+          createCommand( "ps", pan_rate_pos );
 
           // Tilt rate
           // ToDo - Check if tiltRadToPos is the right conversion for tilt rate
           int tilt_rate_pos = tiltRadToPos(m_tilt_rate);
 
           debug("%f rad", m_tilt_rate);
-          debug("%f", tilt_rate_pos);
+          debug("%d", tilt_rate_pos);
 
           // Send tilt command to set the rotation direction.
+          int tilt_pos;
           if ( m_tilt_rate > 0.0 )
-            createCommand( "tp", TILT_MAX );
+            tilt_pos = TILT_MAX;
           else
-            createCommand( "tp", TILT_MIN );
+            tilt_pos = TILT_MIN;
+          createCommand( "tp", tilt_pos );
           // Send tilt rate command.
-          createCommand( "ts", std::abs( tilt_rate_pos ) );
+          tilt_rate_pos = std::abs( tilt_rate_pos );
+          createCommand( "ts", tilt_rate_pos );
         }
         else
         {
