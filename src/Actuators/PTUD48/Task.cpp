@@ -84,13 +84,21 @@ namespace Actuators
       // Serial Port buffer.
       uint8_t m_bfr[BUFFER_MAX];
       // Pan and tilt angles
-      float m_pan, m_tilt;
+      float m_pan;
+      float m_tilt;
+      float m_pan_rate;
+      float m_tilt_rate;
+      // Control mode
+      bool m_rate_mode;
 
       Task(const std::string& name, Tasks::Context& ctx):
         Tasks::Periodic(name, ctx),
-        m_uart(NULL),
-        m_pan(0),
-        m_tilt(0)
+        m_uart( NULL ),
+        m_pan( 0.0 ),
+        m_tilt( 0.0 ),
+        m_pan_rate( 0.0 ),
+        m_tilt_rate( 0.0 ),
+        m_rate_mode( false )
       {
         param("Serial Port - Device", m_args.uart_dev)
         .defaultValue("/dev/ttyUSB0")
@@ -222,6 +230,35 @@ namespace Actuators
         }
       }
 
+      void
+      consume(const IMC::RemoteActions* msg)
+      {
+        TupleList tuples( msg->actions );
+        std::map<std::string, std::string> actions = tuples.getMap();
+
+        if ( actions.find( "Pan" ) != actions.end() || actions.find( "Tilt" ) != actions.end() )
+        {
+          m_rate_mode = false;
+          if ( actions.find( "Pan" ) != actions.end() )
+            m_pan = tuples.get( "Pan" );
+          if ( actions.find( "Tilt" ) != actions.end() )
+            m_tilt = tuples.get( "Tilt" );
+        }
+        else
+        {
+          if ( actions.find( "PanRate" ) != actions.end() )
+          {
+            m_rate_mode = true;
+            m_pan_rate = tuples.get( "PanRate" );
+          }
+          if ( actions.find( "TiltRate" ) != actions.end() )
+          {
+            m_rate_mode = true;
+            m_tilt_rate = tuples.get( "TiltRate" );
+          }
+        }
+      }
+
       int
       panRadToPos(float& val)
       {
@@ -244,55 +281,74 @@ namespace Actuators
       void
       boundTilt(int& val)
       {
-        val = val < TILT_MIN ? TILT_MIN : val; val = val > TILT_MAX ? TILT_MAX : val;
+        val = val < TILT_MIN ? TILT_MIN : val;
+        val = val > TILT_MAX ? TILT_MAX : val;
       }
 
       void
       task(void)
       {
-        // PAN
-        float pan_rad = Angles::normalizeRadian(m_pan);
-        int pan_pos = panRadToPos(pan_rad);
+        if ( m_rate_mode )
+        {
+          // Pan rate
+          // ToDo - Check if panRadToPos is the right conversion for pan rate
+          int pan_rate_pos = panRadToPos( m_pan_rate );
 
-        debug("Pan: %f rad", pan_rad);
-        debug("Pan: %d", pan_pos);
+          debug("%f rad", m_pan_rate);
+          debug("%f", pan_rate_pos);
 
-        // Bound pan value.
-        boundPan(pan_pos);
-        // Send pan command.
-        createCommand("pp", pan_pos);
+          // Send pan command to set the rotation direction.
+          if ( m_pan_rate > 0.0 )
+            createCommand( "pp", PAN_MAX );
+          else
+            createCommand( "pp", PAN_MIN );
+          // Send pan rate command.
+          createCommand( "ps", std::abs( pan_rate_pos ) );
 
-        debug("Pan bounded: %d", pan_pos);
+          // Tilt rate
+          // ToDo - Check if tiltRadToPos is the right conversion for tilt rate
+          int tilt_rate_pos = tiltRadToPos(m_tilt_rate);
 
-        // TILT
-        int tilt_pos = tiltRadToPos(m_tilt);
+          debug("%f rad", m_tilt_rate);
+          debug("%f", tilt_rate_pos);
 
-        debug("Tilt: %f rad", m_tilt);
-        debug("Tilt: %d", tilt_pos);
+          // Send tilt command to set the rotation direction.
+          if ( m_tilt_rate > 0.0 )
+            createCommand( "tp", TILT_MAX );
+          else
+            createCommand( "tp", TILT_MIN );
+          // Send tilt rate command.
+          createCommand( "ts", std::abs( tilt_rate_pos ) );
+        }
+        else
+        {
+          // PAN
+          float pan_rad = Angles::normalizeRadian(m_pan);
+          int pan_pos = panRadToPos(pan_rad);
 
-        // Bound tilt value.
-        boundTilt(tilt_pos);
-        // Send tilt command.
-        createCommand("tp", tilt_pos);
+          debug("Pan: %f rad", pan_rad);
+          debug("Pan: %d", pan_pos);
 
-        debug("Tilt bounded: %d", tilt_pos);
+          // Bound pan value.
+          boundPan(pan_pos);
+          // Send pan command.
+          createCommand("pp", pan_pos);
 
-        //float pan_rate_rad =  tuples.get("PanRate", 0.0f);
-        //int pan_rate_pos = radToPos(pan_rate_rad);
+          debug("Pan bounded: %d", pan_pos);
 
-        //float tilt_rate_rad =  tuples.get("TiltRate", 0.0f);
-        //int tilt_rate_pos = radToPos(tilt_rate_rad);
+          // TILT
+          int tilt_pos = tiltRadToPos(m_tilt);
 
-        //debug("%f", pan_rate_rad);
-        //debug("%f", pan_rate_pos);
-        //debug("%f", tilt_rate_rad);
-        //debug("%f", tilt_rate_pos);
+          debug("Tilt: %f rad", m_tilt);
+          debug("Tilt: %d", tilt_pos);
 
-        // Send pan rate command.
-        //createCommand("ps", pan_rate_pos);
+          // Bound tilt value.
+          boundTilt(tilt_pos);
+          // Send tilt command.
+          createCommand("tp", tilt_pos);
 
-        // Send tilt rate command.
-        //createCommand("ts", tilt_rate_pos);
+          debug("Tilt bounded: %d", tilt_pos);
+        }
 
         // Send halt command.
         //if (tuples.get("Halt", 0)) sendCommand("h ");
