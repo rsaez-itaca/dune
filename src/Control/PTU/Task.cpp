@@ -78,8 +78,8 @@ namespace Control
       Task(const std::string& name, Tasks::Context& ctx):
         DUNE::Tasks::Task(name, ctx),
         m_ptu_state_valid( false ),
-        m_trg_state_valid( false ),
         m_ptu_tray_state_valid( false ),
+        m_trg_state_valid( false ),
         m_ctrl_active( false )
       {
         param("Target Vehicle", m_args.trg_name)
@@ -258,7 +258,7 @@ namespace Control
           {
             // Reset the PTU position to 0 pan and 0 tilt, if it is not active
             std::stringstream ss;
-            IMC:RemoteActions ra;
+            IMC::RemoteActions ra;
             ss << "Pan=" << 0.0 << ";Tilt=" << 0.0 << ";";
             ra.actions = ss.str();
             dispatch(ra);
@@ -348,7 +348,7 @@ namespace Control
           double cmd_tilt = std::atan( - rel_pos_body( 2, 0 ) / hor_dist );
           // Generating PTU commands.
           std::stringstream ss;
-          IMC:RemoteActions ra;
+          IMC::RemoteActions ra;
           if ( m_args.ptu_ctrl_mode == 0 )
           {
             ss << "Pan=" << cmd_pan << ";Tilt=" << cmd_tilt << ";";
@@ -378,7 +378,7 @@ namespace Control
 
             ss << "PanRate=" << cmd_pan_rate << ";TiltRate=" << cmd_tilt_rate << ";";
             ra.actions = ss.str();
-            dispatch(m_ra);
+            dispatch(ra);
 
             trace( "Desired angles: pan=%1.2f; tilt=%1.2f", cmd_pan, cmd_tilt );
             debug( "Commanded angular velocities %s ", ra.actions.c_str() );
