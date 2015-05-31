@@ -40,15 +40,20 @@ namespace Control
       //! Name of Target
       std::string trg_name;
       //! PTU Position
-      float ptu_lat, ptu_lon, ptu_height, yaw_offset;
+      float ptu_lat;
+      float ptu_lon;
+      float ptu_height;
+      float yaw_offset;
     };
 
     struct Task: public DUNE::Tasks::Task
     {
       unsigned m_trg_id;
       Arguments m_args;
-      double m_lat, m_lon;
-      float m_hei, m_yaw;
+      double m_lat;
+      double m_lon;
+      float m_hei;
+      float m_yaw;
 
       Task(const std::string& name, Tasks::Context& ctx):
         DUNE::Tasks::Task(name, ctx)
@@ -126,15 +131,14 @@ namespace Control
 
         WGS84::getAzimuthAndElevation(m_lat, m_lon, m_hei, trg_lat, trg_lon, trg_hei, &azimuth, &elevation);
 
-        IMC::SetControlSurfaceDeflection scsd;
+        // Generating PTU commands.
+        std::stringstream ss;
+        IMC:RemoteActions ra;
+        ss << "Pan=" << azimuth - m_yaw << ";Tilt=" << elevation - Math::c_half_pi << ";";
+        ra.actions = ss.str();
+        dispatch(ra);
 
-        scsd.id = 'p';
-        scsd.angle = azimuth - m_yaw;
-        dispatch(scsd);
-
-        scsd.id = 't';
-        scsd.angle = elevation - Math::c_half_pi;
-        dispatch(scsd);
+        trace("Commanded angles: %s ", ra.actions.c_str() );
       }
 
       void
