@@ -37,6 +37,38 @@ namespace DUNE
 {
   namespace Parsers
   {
+    template <typename M>
+    static void
+    parsePathManeuver(Parsers::Config& cfg, std::string id, M& man)
+    {
+      // Get configurable parameters
+      PlanConfigParser::parseCoordinate(cfg, id, man);
+      PlanConfigParser::parseSpeed(cfg, id, man);
+      PlanConfigParser::parseTimeout(cfg, id, man);
+      PlanConfigParser::parseZ(cfg, id, man);
+      PlanConfigParser::parseZUnits(cfg, id, man);
+
+      int n_points;
+
+      cfg.get(id, "Number of Points", "0", n_points);
+
+      Math::Matrix W(n_points, 3);
+
+      W.readFromConfig(cfg, id, "Points");
+
+      IMC::MessageList<IMC::PathPoint>* list = &man.points;
+
+      for (int i = 0; i < W.rows(); ++i)
+      {
+        IMC::PathPoint* p = new IMC::PathPoint;
+        p->x = W(i, 0);
+        p->y = W(i, 1);
+        p->z = W(i, 2);
+
+        list->push_back(*p);
+      }
+    }
+
     void
     PlanConfigParser::parse(Parsers::Config& cfg, std::string id, IMC::IdleManeuver& man)
     {
@@ -122,32 +154,7 @@ namespace DUNE
     void
     PlanConfigParser::parse(Parsers::Config& cfg, std::string id, IMC::FollowPath& man)
     {
-      // Get configurable parameters
-      parseCoordinate(cfg, id, man);
-      parseSpeed(cfg, id, man);
-      parseTimeout(cfg, id, man);
-      parseZ(cfg, id, man);
-      parseZUnits(cfg, id, man);
-
-      int n_points;
-
-      cfg.get(id, "Number of Points", "0", n_points);
-
-      Math::Matrix W(n_points, 3);
-
-      W.readFromConfig(cfg, id, "Points");
-
-      IMC::MessageList<IMC::PathPoint>* list = &man.points;
-
-      for (int i = 0; i < W.rows(); ++i)
-      {
-        IMC::PathPoint* p = new IMC::PathPoint;
-        p->x = W(i, 0);
-        p->y = W(i, 1);
-        p->z = W(i, 2);
-
-        list->push_back(*p);
-      }
+      parsePathManeuver(cfg, id, man);
     }
 
     void
@@ -220,6 +227,12 @@ namespace DUNE
       cfg.get(id, "Radius (meters)", "50", man.radius);
       cfg.get(id, "Amplitude (meters)", "1", man.amplitude);
       parseAngle(cfg, id, "Pitch (degrees)", man.pitch, (fp32_t)0.0);
+    }
+
+    void
+    PlanConfigParser::parse(Parsers::Config& cfg, std::string id, IMC::FormationPathFollowing& man)
+    {
+      parsePathManeuver(cfg, id, man);
     }
 
     void
@@ -312,6 +325,13 @@ namespace DUNE
           IMC::CompassCalibration ccalib;
           parse(cfg, id, ccalib);
           pman.data.set(ccalib);
+        }
+        else if (type == "FormationPathFollowing")
+        {
+          IMC::FormationPathFollowing fpf;
+          parse(cfg, id, fpf);
+          pman.data.set(fpf);
+
         }
         else
         {

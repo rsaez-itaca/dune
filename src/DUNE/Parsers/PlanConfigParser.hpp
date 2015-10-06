@@ -159,6 +159,13 @@ namespace DUNE
       parse(Parsers::Config& parser, std::string section, IMC::CompassCalibration& maneuver);
 #endif
 
+      //! Parse a FormationPathFollowing maneuver specification from a plan definition file.
+      //! @param[in] parser configuration parser handle.
+      //! @param[in] section section that contains the maneuver specification.
+      //! @param[out] maneuver output maneuver specification.
+      static void
+      parse(Parsers::Config& parser, std::string section, IMC::FormationPathFollowing& maneuver);
+
       //! Parse plan parameters (utility text format).
       //! @param[in] parser configuration parser handle.
       //! @param[out] plan plan parameters.
