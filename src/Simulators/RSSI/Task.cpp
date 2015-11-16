@@ -1,5 +1,5 @@
 //***************************************************************************
-// Copyright 2007-2014 University of Michigan                               *
+// Copyright 2007-2015 University of Michigan                               *
 // Aerospace, Robotics, and Controls laboratory (ARC Lab)                   *
 //***************************************************************************
 // This file is part of DUNE: Unified Navigation Environment.               *
@@ -24,16 +24,25 @@
 //***************************************************************************
 // Author: Ricardo Bencatel                                                 *
 // Author: Zhengjie Cui                                                     *
+// Author: Liang Liu                                                        *
 //***************************************************************************
 
 // DUNE headers.
 #include <DUNE/DUNE.hpp>
+#include <cmath>
+#include <string>
 
 namespace Simulators
 {
   namespace RSSI
   {
     using DUNE_NAMESPACES;
+
+    enum strategies{
+      QUANOYLER,
+      QUANCHC,
+      BRRSHG
+    };
 
     struct Arguments
     {
@@ -48,6 +57,7 @@ namespace Simulators
       double sgn_gain;
       //! Homing vehicle name
       std::string vehicle_name;
+      std::string strategy_name;
     };
 
     struct Task: public DUNE::Tasks::Periodic
@@ -66,8 +76,8 @@ namespace Simulators
       //! @param[in] ctx context.
       Task(const std::string& name, Tasks::Context& ctx):
         DUNE::Tasks::Periodic(name, ctx),
-		m_last_time_spew(std::min(-1.0, Clock::get())),
-		m_last_time_trace(std::min(-1.0, Clock::get()))
+        m_last_time_spew(std::min(-1.0, Clock::get())),
+        m_last_time_trace(std::min(-1.0, Clock::get()))
       {
         param("Signal Gain", m_args.sgn_gain)
         .description("Gain of signal strength")
@@ -101,7 +111,11 @@ namespace Simulators
         .description("Target system name.")
         .defaultValue("x8-03");
 
-        bind<IMC::EstimatedState>(this);
+        param("Strategy Name",m_args.strategy_name)
+        .defaultValue("BRRSHG")
+        .description("Name of the homing guidance strategy.");
+
+        bind<IMC::EstimatedState>(this);                           
       }
 
       //! Update internal state with new parameter values.
@@ -152,35 +166,120 @@ namespace Simulators
       void
       consume(const IMC::EstimatedState* msg)
       {
-        if (m_args.vehicle_name == resolveSystemId(msg->getSource()))
-        {
-          IMC::EstimatedState vehicle_es = *msg;
+        std::vector<std::string> StrategyName;
+        std::string name1="QUANOYLER";
+        std::string name2="QUANCHC";
+        std::string name3="BRRSHG";
+        StrategyName.push_back(name1);
+        StrategyName.push_back(name2);
+        StrategyName.push_back(name3);
 
-          // Signal strength computation
-          Coordinates::WGS84::displace(vehicle_es.x, vehicle_es.y, vehicle_es.z,
-              &vehicle_es.lon, &vehicle_es.lat, &vehicle_es.height);
-          double distance = Coordinates::WGS84::distance(m_src_es.lon, m_src_es.lat, m_src_es.height,
-              vehicle_es.lon, vehicle_es.lat, vehicle_es.height);
-          m_rssi.value = m_args.sgn_gain/distance;
-          dispatch(m_rssi);
+        strategies name;
+        for(int i=0;i<3;i++){
+          if (StrategyName[i]==m_args.strategy_name){
+            name=static_cast<strategies>(i);
+          }
+        }
+        switch(name){
+          case QUANOYLER: case QUANCHC:
+          {std::vector<double> sgn_src_radius;
 
-          // Debug printouts
-          double time_current  = Clock::get();
-          if (time_current >= m_last_time_trace + 1.5)
+          for (int i=1;i<=7;i++)
           {
-            trace("Current RSSI = %.10f, w.r.t %s", m_rssi.value,
-                  resolveEntity(msg->getSourceEntity()).c_str());
-            m_last_time_trace = time_current;
+            sgn_src_radius.push_back(pow((double)10,(1.8+0.2*(double)(i))));
           }
-          if (time_current >= m_last_time_spew + 0.5)
+          if (m_args.vehicle_name == resolveSystemId(msg->getSource()))
           {
-            spew("Signal source position: longitude = %.10f, latitude = %.10f",
-                 Math::Angles::degrees(m_src_es.lon), Math::Angles::degrees(m_src_es.lat));
-            spew("Vehicle position:       longitude = %.10f, latitude = %.10f",
-                Math::Angles::degrees(vehicle_es.lon), Math::Angles::degrees(vehicle_es.lat));
-            spew("Distance to source: %.10f", distance);
-            m_last_time_spew = time_current;
+            IMC::EstimatedState vehicle_es = *msg;
+
+            // Signal strength computation
+            Coordinates::WGS84::displace(vehicle_es.x, vehicle_es.y, vehicle_es.z,
+                &vehicle_es.lon, &vehicle_es.lat, &vehicle_es.height);
+            IMC::EstimatedState src_es = m_src_es;
+            Coordinates::WGS84::displace(src_es.x, src_es.y, src_es.z,
+                &src_es.lon, &src_es.lat, &src_es.height);
+            //war("vehicle_es.lon %f",vehicle_es.lon);
+            //war("vehicle_es.lat %f",vehicle_es.lat);
+            double distance = Coordinates::WGS84::distance(src_es.lon, src_es.lat,
+                src_es.height, vehicle_es.lon, vehicle_es.lat, vehicle_es.height);
+            spew("distance:%f",distance);
+            if (distance>sgn_src_radius[6])
+            {m_rssi.value=8;}
+            else{
+              for(int i=1;i<=7;i++)
+              {
+                if (distance<=sgn_src_radius[i-1])
+                {
+                  m_rssi.value=i;
+                  break;
+                }
+              }
+            }
+            //spew("rssi_before:%f",m_rssi.value);
+            // m_rssi.value = m_args.sgn_gain/distance;
+            int random_temp=std::rand()%100+1;
+            if(random_temp<=5)
+            {m_rssi.value--;}
+            else if (random_temp<=10)
+            {m_rssi.value++;}
+            //spew("rssi_after:%f",m_rssi.value);
+            dispatch(m_rssi);
+
+            // Debug printouts
+            double time_current  = Clock::get();
+            if (time_current >= m_last_time_trace + 1.5)
+            {
+              trace("Current RSSI = %.10f, w.r.t %s", m_rssi.value,
+                    resolveEntity(msg->getSourceEntity()).c_str());
+              m_last_time_trace = time_current;
+            }
+            if (time_current >= m_last_time_spew + 0.5)
+            {
+              spew("Signal source position: longitude = %.10f, latitude = %.10f",
+                   Math::Angles::degrees(m_src_es.lon),
+                   Math::Angles::degrees(m_src_es.lat));
+              spew("Vehicle position:       longitude = %.10f, latitude = %.10f",
+                  Math::Angles::degrees(vehicle_es.lon),
+                  Math::Angles::degrees(vehicle_es.lat));
+              spew("Distance to source: %.10f", distance);
+              m_last_time_spew = time_current;
+            }
+          }//end if
+          break;}
+          case BRRSHG:
+          {if (m_args.vehicle_name == resolveSystemId(msg->getSource()))
+          {
+            IMC::EstimatedState vehicle_es = *msg;
+
+            // Signal strength computation
+            Coordinates::WGS84::displace(vehicle_es.x, vehicle_es.y, vehicle_es.z,
+                &vehicle_es.lon, &vehicle_es.lat, &vehicle_es.height);
+            double distance = Coordinates::WGS84::distance(m_src_es.lon, m_src_es.lat,
+                m_src_es.height, vehicle_es.lon, vehicle_es.lat, vehicle_es.height);
+            m_rssi.value = m_args.sgn_gain/distance;
+            dispatch(m_rssi);
+
+            // Debug printouts
+            double time_current  = Clock::get();
+            if (time_current >= m_last_time_trace + 1.5)
+            {
+              trace("Current RSSI = %.10f, w.r.t %s", m_rssi.value,
+                    resolveEntity(msg->getSourceEntity()).c_str());
+              m_last_time_trace = time_current;
+            }
+            if (time_current >= m_last_time_spew + 0.5)
+            {
+              spew("Signal source position: longitude = %.10f, latitude = %.10f",
+                   Math::Angles::degrees(m_src_es.lon),
+                   Math::Angles::degrees(m_src_es.lat));
+              spew("Vehicle position:       longitude = %.10f, latitude = %.10f",
+                  Math::Angles::degrees(vehicle_es.lon),
+                  Math::Angles::degrees(vehicle_es.lat));
+              spew("Distance to source: %.10f", distance);
+              m_last_time_spew = time_current;
+            }
           }
+          break;}
         }
       }
 
@@ -189,6 +288,7 @@ namespace Simulators
       task(void)
       {
         consumeMessages();
+        //inf("RSSI running");
       }
     };
   }
