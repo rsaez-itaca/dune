@@ -1,5 +1,5 @@
 //***************************************************************************
-// Copyright 2007-2014 University of Michigan                               *
+// Copyright 2007-2015 University of Michigan                               *
 // Aerospace, Robotics, and Controls laboratory (ARC Lab)                   *
 //***************************************************************************
 // This file is part of DUNE: Unified Navigation Environment.               *
@@ -25,6 +25,7 @@
 // Author: Dave Oyler                                                       *
 // Author: Ricardo Bencatel                                                 *
 // Author: Zhengjie Cui                                                     *
+// Author: Liang Liu                                                        *
 //***************************************************************************
 
 //***************************************************************************
@@ -36,6 +37,7 @@
 
 // DUNE headers.
 #include <DUNE/DUNE.hpp>
+#include <math.h>
 
 namespace Maneuver
 {
@@ -43,7 +45,13 @@ namespace Maneuver
   {
     using DUNE_NAMESPACES;
 
-    struct Arguments
+    enum strategies{
+      QUANOYLER,
+      QUANCHC,
+      BRRSHG
+    };
+
+    struct Arguments                        
     {
       double xb_estimate;
       double yb_estimate;
@@ -51,7 +59,7 @@ namespace Maneuver
       double lambda1;
       double lambda2;
       double yaw_rate_lim;
-      double g_conv_spd;
+      double g_conv_spd;         
       //! Observer parameters
       double g_obs_k1;
       double g_obs_k2;
@@ -60,9 +68,10 @@ namespace Maneuver
       double bank_lim;
       //! Signal source id name
       std::string src_id;
+      std::string strategy_name;      
     };
 
-    struct Task: public DUNE::Tasks::Periodic
+    struct Task: public DUNE::Tasks::Periodic            
     {
       //! Task arguments.
       Arguments m_args;
@@ -76,7 +85,7 @@ namespace Maneuver
       IMC::EstimatedState m_beacon_es;
       double m_xb_estim;
       double m_yb_estim;
-      double m_range_rate;
+      double m_range_rate;                   
       double m_rssi_prev;
       //! Vehicle command limits
       double m_bank_lim;
@@ -91,8 +100,8 @@ namespace Maneuver
       //! @param[in] name task name.
       //! @param[in] ctx context.
       Task(const std::string& name, Tasks::Context& ctx):
-        DUNE::Tasks::Periodic(name, ctx),
-        m_psi( 0.0 ),
+        DUNE::Tasks::Periodic(name, ctx),                                        
+        m_psi( 0.0 ),                               
         m_es_valid( false ),
         m_speed( - 1.0 ),
         m_xb_estim( 0.0 ),
@@ -144,7 +153,7 @@ namespace Maneuver
         .description("Observer convergence gain 1.");
 
         param("Observer Gain 2", m_args.g_obs_k2)
-        .defaultValue("10.0")
+        .defaultValue("4096") //k2=2^12 here.
         .units(Units::None)
         .description("Observer convergence gain 2.");
 
@@ -162,10 +171,15 @@ namespace Maneuver
         .defaultValue("spot-01")
         .description("Signal source id name.");
 
+        param("Strategy Name",m_args.strategy_name)
+        .defaultValue("BRRSHG")
+        .description("Name of the homing guidance strategy.");
+
         bind<IMC::RSSI>(this);
-        bind<IMC::EstimatedState>(this);
+        bind<IMC::EstimatedState>(this); 
         bind<IMC::IndicatedSpeed>(this);
       }
+
 
       //! Update internal state with new parameter values.
       void
@@ -218,42 +232,61 @@ namespace Maneuver
       void
       consume(const IMC::RSSI* msg)
       {
-        // Adjust the target angle as a function of the RSSI signal variation
+        getRangeRate(msg);
 
-        // Determine if the signal is getting stronger or weaker
-        double time_current = Clock::get();
-        if ( msg->value < m_rssi_prev )
-        {
-          m_range_rate = 1;
-          if ( time_current >= m_last_time_debug + 2.0 )
-          {
-            debug("Get Further");
-            m_last_time_debug = time_current;
+        std::vector<std::string> StrategyName;
+        std::string name1="QUANOYLER";
+        std::string name2="QUANCHC";
+        std::string name3="BRRSHG";
+        StrategyName.push_back(name1);
+        StrategyName.push_back(name2);
+        StrategyName.push_back(name3);
+
+        strategies name;
+        for(int i=0;i<3;i++){
+          if (StrategyName[i]==m_args.strategy_name){
+            name=static_cast<strategies>(i);
           }
         }
-        else
-        {
-          m_range_rate = -1;
-          if ( time_current >= m_last_time_debug + 2.0 )
-          {
-            debug("Get Closer");
-            m_last_time_debug = time_current;
-          }
-        }
-        m_rssi_prev = msg->value;
-
-        // Update target position estimate
-        Observer();
-
-        // Adjust the vehicle direction to home-in on the signal source
-        if ( m_speed > 0.0 )
-        {
-          double yaw_rate = Controller();
-          // Bank command
-          IMC::DesiredRoll cmd_roll;
-          cmd_roll.value = Math::trimValue( std::atan( yaw_rate * m_speed / Math::c_gravity ),
-              - m_bank_lim, m_bank_lim );
-          dispatch(cmd_roll);
+        switch(name){
+          case QUANOYLER:
+            if((m_range_rate==-1)||(m_range_rate==1))
+            {Observer(); }
+            if ( m_speed > 0.0 )
+            {
+              double yaw_rate = Controller_Oyler();
+              // Bank command
+              IMC::DesiredRoll cmd_roll;
+              cmd_roll.value = Math::trimValue( std::atan( yaw_rate *
+                  m_speed / Math::c_gravity ),- m_bank_lim, m_bank_lim );
+              dispatch(cmd_roll);
+            }
+            break;
+          case QUANCHC:
+            if ( m_speed > 0.0 )
+            {
+              double yaw_rate = Controller_CHC();
+              // Bank command
+              IMC::DesiredRoll cmd_roll;
+              cmd_roll.value = Math::trimValue( std::atan( yaw_rate *
+                  m_speed / Math::c_gravity ),- m_bank_lim, m_bank_lim );
+              dispatch(cmd_roll);
+            }
+            break;
+          case BRRSHG:
+            Observer();
+            if ( m_speed > 0.0 )
+            {
+              double yaw_rate = Controller_BRRSHG();
+              // Bank command
+              IMC::DesiredRoll cmd_roll;
+              cmd_roll.value = Math::trimValue( std::atan( yaw_rate *
+                  m_speed / Math::c_gravity ),- m_bank_lim, m_bank_lim );
+              dispatch(cmd_roll);
+            }
+            break;
+          default:
+            war("Invalid homing option!");
         }
       }
 
@@ -261,7 +294,6 @@ namespace Maneuver
       consume(const IMC::EstimatedState* msg)
       {
         // Save the vehicle estimated state
-
         m_es_valid = true;
         m_vehicle = *msg;
         m_psi = msg->psi;
@@ -272,8 +304,9 @@ namespace Maneuver
         m_beacon_es.lat = msg->lat;
         m_beacon_es.lon = msg->lon;
         m_beacon_es.height = msg->height;
-
-        DUNE::Coordinates::WGS84::displace(m_vehicle.x, m_vehicle.y, m_vehicle.z, &global_lon, &global_lat, &global_height);
+        //war("m_vehicle.x %f",m_vehicle.x);
+        DUNE::Coordinates::WGS84::displace(m_vehicle.x, m_vehicle.y,
+            m_vehicle.z, &global_lon, &global_lat, &global_height);
 
         // Debug printouts
         double time_current = Clock::get();
@@ -282,7 +315,8 @@ namespace Maneuver
           spew("--------------------------------------------------------------------------------------");
           spew("Current UAV position:x = %.10f, y = %.10f w.r.t longitude = %.10f, latitude = %.10f",
               m_vehicle.x, m_vehicle.y, m_vehicle.lon, m_vehicle.lat);
-          spew("Current UAV Global position: longitude = %.10f, latitude = %.10f height = %.5f", global_lon, global_lat, global_height);
+          spew("Current UAV Global position: longitude = %.10f, latitude = "
+              "%0.10f height = %0.5f", global_lon, global_lat, global_height);
           m_last_time_spew = time_current;
         }
       }
@@ -294,23 +328,112 @@ namespace Maneuver
         m_speed = msg->value;
       }
 
+      void getRangeRate(const IMC::RSSI* msg)
+      {
+        double time_current = Clock::get();
+
+        std::vector<std::string> StrategyName;
+        std::string name1="QUANOYLER";
+        std::string name2="QUANCHC";
+        std::string name3="BRRSHG";
+        StrategyName.push_back(name1);
+        StrategyName.push_back(name2);
+        StrategyName.push_back(name3);
+
+        strategies name;
+        for(int i=0;i<3;i++){
+          if (StrategyName[i]==m_args.strategy_name){
+            name=static_cast<strategies>(i);
+          }
+        }
+        switch (name){
+          case QUANOYLER: case QUANCHC:
+          {int signal_level=Signal_Filter(msg ->value);
+          static int signal_level_prev=signal_level;
+          // Determine if the signal is getting stronger or weaker
+          if(signal_level > signal_level_prev)
+          {
+            m_range_rate =1;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("Get Outside");
+              m_last_time_debug = time_current;
+            }
+          }
+          else if ( signal_level==8)
+          {
+            m_range_rate =-100;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("In no-signal region");
+              m_last_time_debug = time_current;
+            }
+          }
+          else if (signal_level < signal_level_prev )
+          {
+            m_range_rate = -1;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("Get Inside");
+              m_last_time_debug = time_current;
+            }
+          }
+          else
+          {
+            m_range_rate =0;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("Stay in annulus");
+              m_last_time_debug = time_current;
+            }
+          }
+          signal_level_prev = signal_level;
+          break;}
+          case BRRSHG:
+          {if ( msg->value < m_rssi_prev )
+          {
+            m_range_rate = 1;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("Get Further");
+              m_last_time_debug = time_current;
+            }
+          }
+          else
+          {
+            m_range_rate = -1;
+            if ( time_current >= m_last_time_debug + 2.0 )
+            {
+              debug("Get Closer");
+              m_last_time_debug = time_current;
+            }
+          }
+          m_rssi_prev = msg->value;}
+          break;
+        }
+      }
+
       void
       Observer(void)
       {
         // Update of the target position estimate
-        double alpha = m_xb_estim * cos(m_psi) + m_yb_estim * sin(m_psi);
-        double range_rate_estimate = -alpha / sqrt(alpha * alpha + m_args.eps * m_args.eps); // * m_speed * m_speed);
+        double alpha = m_xb_estim * cos(m_psi) + m_yb_estim * sin(m_psi);  
+        double range_rate_estimate = -alpha / sqrt(alpha * alpha +
+                                                   m_args.eps * m_args.eps);
         double range_rate_eps = m_range_rate - range_rate_estimate;
-        double xb_dot = - m_speed * cos(m_psi) * (m_args.g_obs_k1 * m_range_rate + m_args.g_obs_k2 * range_rate_eps);
-        double yb_dot = - m_speed * sin(m_psi) * (m_args.g_obs_k1 * m_range_rate + m_args.g_obs_k2 * range_rate_eps);
-        m_xb_estim += xb_dot;
+        double xb_dot = - m_speed * cos(m_psi) * (m_args.g_obs_k1 *
+            m_range_rate + m_args.g_obs_k2 * range_rate_eps);
+        double yb_dot = - m_speed * sin(m_psi) * (m_args.g_obs_k1 *
+            m_range_rate + m_args.g_obs_k2 * range_rate_eps);
+        m_xb_estim += xb_dot;   
         m_yb_estim += yb_dot;
 
         // Debug printouts
         double time_current = Clock::get();
         if ( time_current >= m_last_time_trace + 1.2 )
         {
-          trace( "Estimated beacon position: x = %.10f, y = %.10f", m_xb_estim, m_yb_estim );
+          trace( "Estimated beacon position: x = %.10f, y = %.10f",
+                 m_xb_estim, m_yb_estim );
           m_last_time_trace = time_current;
           if ( m_es_valid )
           {
@@ -318,17 +441,146 @@ namespace Maneuver
             m_beacon_es.y = m_vehicle.y + m_yb_estim;
             m_beacon_es.setSource( m_src_id );
             dispatch( m_beacon_es );
+            //inf("dispatch m_beacon_es");
           }
         }
+
       }
 
       double
-      Controller(void)
+      Controller_Oyler(void)
+      {
+        //variable initialization
+        static double yaw_to_turn=0;
+        static const double yaw_epsilon=0.005;
+        static double yaw_rate=0;
+        static double current_time=0;
+        current_time=Clock::get();
+        static double past_time=current_time;
+        double yaw_rate_lim=Math::c_gravity*std::tan(m_bank_lim)/m_speed;
+        static int step_move_staright=0;
+
+        if (yaw_to_turn<=yaw_epsilon)
+        {
+          if (step_move_staright>=1)
+          {
+            yaw_rate=0;
+            yaw_to_turn=0;
+            step_move_staright=step_move_staright-1;
+          }
+          else if (m_range_rate==-100)
+          {
+            yaw_to_turn=(double)240/180*M_PI;
+            yaw_rate=yaw_rate_lim;
+            step_move_staright=ceil(m_speed/yaw_rate_lim*sqrt(3))+20;
+          }
+          else
+          {
+            double r = std::sqrt( m_xb_estim * m_xb_estim + m_yb_estim * m_yb_estim );
+            double theta = std::atan2( - m_yb_estim, - m_xb_estim );
+            //-------updated correction----------------
+            m_psi=theta+WarpToPI(m_psi-theta);
+            //-----------------------------------------
+            double r_dot = m_speed * std::cos(m_psi - theta);
+            double r_des_dot = - m_args.g_conv_spd * m_speed;
+            double r_des = (r_dot - r_des_dot) / m_args.lambda1 + r;
+            double r_des_dbldot = 0;
+            double a = m_psi - theta;
+            double a_des = std::acos((- m_args.lambda1 * (r - r_des) + r_des_dot) / m_speed);
+
+            if (a < 0)
+            {a_des = - a_des;}
+
+            double a_des_dot = ( - 1 / std::sqrt(1 - std::pow(((m_args.lambda1 *
+                (r - r_des) - r_des_dot) / m_speed), 2))* (- m_args.lambda1 *
+                    (r_dot - r_des_dot) - r_des_dbldot) / m_speed);
+
+            if (a < 0)
+            {a_des_dot = - a_des_dot;}
+
+            if (std::abs(a_des_dot) > m_args.yaw_rate_lim)
+            {a_des_dot = a_des_dot / std::abs( a_des_dot ) * m_args.yaw_rate_lim;}
+
+            yaw_rate=- m_args.lambda2 * (a - a_des) + m_speed / r * std::sin(a) + a_des_dot;
+            //inf("yaw_rate1: %f",yaw_rate);
+            yaw_to_turn=0;
+          }
+
+        }
+
+        if (yaw_to_turn>yaw_epsilon)
+          yaw_to_turn=yaw_to_turn-yaw_rate*(current_time-past_time);
+
+        past_time=current_time;
+        //inf("yaw_rate2: %f",yaw_rate);
+        return yaw_rate;
+      }
+
+
+      double  //output yaw_rate
+      Controller_CHC(void)
+      {
+        //variable initialization
+        static double yaw_to_turn=0;
+        static const double yaw_epsilon=0.005;
+        static double yaw_rate=0;
+        static double current_time=0;
+        current_time=Clock::get();
+        static double past_time=current_time;
+        double yaw_rate_lim=Math::c_gravity*std::tan(m_bank_lim)/m_speed;
+        static int step_move_staright=0;
+
+        if (yaw_to_turn<=yaw_epsilon)
+        {
+          if (step_move_staright>=1)
+          {
+            yaw_rate=0;
+            yaw_to_turn=0;
+            step_move_staright=step_move_staright-1;
+          }
+          else if (m_range_rate==-100)
+          {
+            yaw_to_turn=(double)240/180*M_PI;
+            //inf("yaw_to_turn has been updated");
+            yaw_rate=yaw_rate_lim;
+            step_move_staright=ceil(m_speed/yaw_rate_lim*sqrt(3))+20;
+          }
+          else if (m_range_rate==1)
+          {
+            yaw_to_turn=(double)120/180*M_PI;
+            //inf("yaw_to_turn has been updated");
+            yaw_rate=yaw_rate_lim;
+          }
+          else
+          {
+            yaw_to_turn=0;
+            yaw_rate=0;
+          }
+        }
+        else
+        {
+          yaw_rate=yaw_rate;
+        }
+        //inf("yaw_rate: %f",yaw_rate);
+        //inf("yaw_to_turn1: %f",yaw_to_turn);
+        //inf("time difference: %f",current_time-past_time);
+        yaw_to_turn=yaw_to_turn-yaw_rate*(current_time-past_time);
+        //inf("yaw_to_turn2: %f",yaw_to_turn);
+        past_time=current_time;
+
+        return yaw_rate;
+      }
+
+
+      double
+      Controller_BRRSHG(void)
       {
         // Compute the desired turn rate to home-in on the target
         double r = std::sqrt( m_xb_estim * m_xb_estim + m_yb_estim * m_yb_estim );
         double theta = std::atan2( - m_yb_estim, - m_xb_estim );
-
+        //-------updated correction----------------
+        m_psi=theta+WarpToPI(m_psi-theta);
+        //-----------------------------------------
         double r_dot = m_speed * std::cos(m_psi - theta);
 
         double r_des_dot = - m_args.g_conv_spd * m_speed;
@@ -342,7 +594,9 @@ namespace Maneuver
         if (a < 0)
           a_des = - a_des;
 
-        double a_des_dot = ( - 1 / std::sqrt(1 - std::pow(((m_args.lambda1 * (r - r_des) - r_des_dot) / m_speed), 2))* (- m_args.lambda1 * (r_dot - r_des_dot) - r_des_dbldot) / m_speed);
+        double a_des_dot = ( - 1 / std::sqrt(1 - std::pow(((m_args.lambda1 *
+            (r - r_des) - r_des_dot) / m_speed), 2))* (- m_args.lambda1 *
+                (r_dot - r_des_dot) - r_des_dbldot) / m_speed);
 
         if (a < 0)
           a_des_dot = - a_des_dot;
@@ -350,14 +604,36 @@ namespace Maneuver
         if (std::abs(a_des_dot) > m_args.yaw_rate_lim)
           a_des_dot = a_des_dot / std::abs( a_des_dot ) * m_args.yaw_rate_lim;
 
-        return - m_args.lambda2 * (a - a_des) + m_speed / r * std::sin(a) + a_des_dot;
+        double yaw_rate=- m_args.lambda2 * (a - a_des) + m_speed / r * std::sin(a) + a_des_dot;
+        return yaw_rate;
+      }
+
+      int Signal_Filter(int m_rssi)
+      {
+        static const double filter_ratio=0.90;
+        int signal_level_temp;
+        static double rssi_accumulate=(double)m_rssi;
+        rssi_accumulate=filter_ratio*rssi_accumulate+(1-filter_ratio)*m_rssi;
+        signal_level_temp=Math::roundToInteger(rssi_accumulate);
+
+        return signal_level_temp;
+      }
+
+      double WarpToPI(double x)
+      {
+        double y=fmod(x,(2*M_PI));
+        if (y>M_PI)
+        {y=y-(2*M_PI);}
+        return y;
       }
 
       void
       task(void)
       {
         consumeMessages();
+        //inf("quan running");
       }
+
     };
   }
 }
