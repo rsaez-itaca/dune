@@ -80,7 +80,6 @@ namespace Transports
       uint8_t new_message[MESSAGE_NUMBER];
       std::string data_message;
 
-
       //! Constructor.
       DataSeatrac(void)
       {

@@ -25,25 +25,29 @@
 // Author: Ricardo Martins                                                  *
 //***************************************************************************
 
-#ifndef TRANSPORTS_SUNSET_SSC_CONSTANTS_HPP_INCLUDED_
-#define TRANSPORTS_SUNSET_SSC_CONSTANTS_HPP_INCLUDED_
-
 // ISO C++ 98 headers.
-#include <cstddef>
+#include <iostream>
 
-namespace Transports
+// DUNE headers.
+#include <DUNE/DUNE.hpp>
+
+// Local headers.
+#include "Test.hpp"
+
+using namespace DUNE::Time;
+
+int
+main(void)
 {
-  namespace SUNSET
-  {
-    //! Command prefix.
-    static const char* c_ssc_prefix = "SSC";
-    //! Command terminator.
-    static const char* c_ssc_term = "\n";
-    //! Size of the SSC footer.
-    static size_t c_ssc_footer_size = 5;
-    //! Minimum number of arguments.
-    static size_t c_ssc_min_args = 10;
-  }
-}
+  Test test("Time::Delay");
 
-#endif
+  {
+    double start = Clock::get();
+    Delay::wait(1.0);
+    double end = Clock::get();
+
+    test.boolean("wait()", ((end - start) - 1.0) < 0.1);
+  }
+
+  return 0;
+}
