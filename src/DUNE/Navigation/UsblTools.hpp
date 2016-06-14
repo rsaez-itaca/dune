@@ -250,19 +250,22 @@ namespace DUNE
           {
             // Request reply.
             case CODE_RPL:
-              if (msg->data[REQ_START] & c_mask_start)
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
               {
-                std::memcpy(&m_period, &msg->data[REQ_PERIOD], sizeof(uint16_t));
-                m_fix = msg->data[REQ_START] & c_mask_fix;
-                m_usbl_alive = true;
-                m_comm_timeout_timer.setTop(c_max_comm_timeout * m_period);
-              }
-              else
-              {
-                m_usbl_alive = false;
-              }
+                if (msg->data[REQ_START] & c_mask_start)
+                {
+                  std::memcpy(&m_period, &msg->data[REQ_PERIOD], sizeof(uint16_t));
+                  m_fix = msg->data[REQ_START] & c_mask_fix;
+                  m_usbl_alive = true;
+                  m_comm_timeout_timer.setTop(c_max_comm_timeout * m_period);
+                }
+                else
+                {
+                  m_usbl_alive = false;
+                }
 
-              m_usbl_name = msg->sys_src;
+                m_usbl_name = msg->sys_src;
+              }
               break;
 
             case CODE_FIX:
@@ -278,9 +281,12 @@ namespace DUNE
               fix.z = fs.z;
               fix.z_units = fs.z_units;
               fix.accuracy = fs.accuracy;
-
               m_task->dispatch(fix);
-              m_comm_timeout_timer.reset();
+              
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
+              {
+                m_comm_timeout_timer.reset();
+              }
               break;
             }
 
@@ -303,7 +309,10 @@ namespace DUNE
               if(!getFix(msg->sys_src, pos))
                 m_task->dispatch(pos);
 
-              m_comm_timeout_timer.reset();
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
+              {
+                m_comm_timeout_timer.reset();
+              }
               break;
             }
 
@@ -482,7 +491,7 @@ namespace DUNE
           m_fix = fix;
           m_period = period;
           m_target_timer.setTop(m_period);
-          m_comm_errors = 0;
+          resetErrors();
         }
 
         //! Get target's name.
@@ -501,13 +510,15 @@ namespace DUNE
         {
           return m_fix;
         }
-        
+
         //! Check if the target node has failed.
+        //! @return true if target has reached threshold, false otherwise.
         bool
         hasFailed(void)
         {
           if (++m_comm_errors >= c_max_comm_timeout)
             return true;
+
           return false;
         }
 
@@ -567,7 +578,7 @@ namespace DUNE
           {
             if (m_modem_wdog.overflow())
             {
-              handleTargetCommError(m_system);
+              targetFailed(m_system);
               m_system.clear();
             }
             return false;
@@ -633,6 +644,7 @@ namespace DUNE
                 remove(msg->sys_src);
                 // this system is waiting for reply.
                 m_system = msg->sys_src;
+                m_modem_wdog.setTop(c_requests_interval/2.0);
                 return false;
               }
 
@@ -679,7 +691,7 @@ namespace DUNE
 
           data[c_code - 1] = CODE_FIX;
           std::memcpy(&data[c_code], &fix, sizeof(UsblTools::Fix));
-          handleTargetCommOk(m_system);
+          targetReplied(m_system);
           m_system.clear();
 
           return true;
@@ -711,7 +723,7 @@ namespace DUNE
 
           data[c_code - 1] = CODE_POS;
           std::memcpy(&data[c_code], &pos, sizeof(UsblTools::Pos));
-          handleTargetCommOk(m_system);
+          targetReplied(m_system);
           m_system.clear();
 
           return true;
@@ -794,12 +806,11 @@ namespace DUNE
         {
           m_list.clear();
         }
-        
 
-        //! Handle a successful communication with a target.
-        //! @param[in] target target's name.
+        //! Target is alive and replying.
+        //! @param[in] name target's name.
         void
-        handleTargetCommOk(std::string name)
+        targetReplied(std::string name)
         {
           // Iterate through list and remove if necessary.
           std::vector<Target>::iterator itr = m_list.begin();
@@ -809,14 +820,15 @@ namespace DUNE
             if (itr->compare(name))
             {
               itr->resetErrors();
+              return;
             }
           }
         }
 
-        //! Handle a communication error with a target.
-        //! @param[in] target target's name.
+        //! Target failed to reply.
+        //! @param[in] name target's name.
         void
-        handleTargetCommError(std::string name)
+        targetFailed(std::string name)
         {
           // Iterate through list and remove if necessary.
           std::vector<Target>::iterator itr = m_list.begin();
@@ -825,8 +837,8 @@ namespace DUNE
             // Same target
             if (itr->compare(name))
             {
-              // The target has failed
-              if(itr->hasFailed())
+              // The target has failed.
+              if (itr->hasFailed())
               {
                 m_list.erase(itr, itr + 1);
                 return;
