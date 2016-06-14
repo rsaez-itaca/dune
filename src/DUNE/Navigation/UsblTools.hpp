@@ -250,19 +250,22 @@ namespace DUNE
           {
             // Request reply.
             case CODE_RPL:
-              if (msg->data[REQ_START] & c_mask_start)
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
               {
-                std::memcpy(&m_period, &msg->data[REQ_PERIOD], sizeof(uint16_t));
-                m_fix = msg->data[REQ_START] & c_mask_fix;
-                m_usbl_alive = true;
-                m_comm_timeout_timer.setTop(c_max_comm_timeout * m_period);
-              }
-              else
-              {
-                m_usbl_alive = false;
-              }
+                if (msg->data[REQ_START] & c_mask_start)
+                {
+                  std::memcpy(&m_period, &msg->data[REQ_PERIOD], sizeof(uint16_t));
+                  m_fix = msg->data[REQ_START] & c_mask_fix;
+                  m_usbl_alive = true;
+                  m_comm_timeout_timer.setTop(c_max_comm_timeout * m_period);
+                }
+                else
+                {
+                  m_usbl_alive = false;
+                }
 
-              m_usbl_name = msg->sys_src;
+                m_usbl_name = msg->sys_src;
+              }
               break;
 
             case CODE_FIX:
@@ -278,9 +281,12 @@ namespace DUNE
               fix.z = fs.z;
               fix.z_units = fs.z_units;
               fix.accuracy = fs.accuracy;
-
               m_task->dispatch(fix);
-              m_comm_timeout_timer.reset();
+              
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
+              {
+                m_comm_timeout_timer.reset();
+              }
               break;
             }
 
@@ -303,7 +309,10 @@ namespace DUNE
               if(!getFix(msg->sys_src, pos))
                 m_task->dispatch(pos);
 
-              m_comm_timeout_timer.reset();
+              if(msg->sys_dst == m_task->getSystemName()) //Msg to this node
+              {
+                m_comm_timeout_timer.reset();
+              }
               break;
             }
 
