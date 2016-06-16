@@ -335,7 +335,7 @@ namespace DUNE
             }
           }
         }
-        
+/*        
         //! Sets a modem fix.
         //! The node will use the modem fix to convert its position into a fix.
         //! param[in] msg The UsblModem message where the modem fix is stored.
@@ -364,7 +364,7 @@ namespace DUNE
           fix.z_units = msg->z_units;
           m_modem_fix.push_back(fix);
         }
-
+*/
       private:
         //! Encode a request to be transmitted by node.
         //! @param[out] data frame to be send.
