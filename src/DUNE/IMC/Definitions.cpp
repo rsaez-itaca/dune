@@ -26,7 +26,7 @@
 //***************************************************************************
 // Automatically generated.                                                 *
 //***************************************************************************
-// IMC XML MD5: 86a299b01f3fb2b07aa79ba59f7f24ec                            *
+// IMC XML MD5: c2f889e53b9d70fdd28a9f839289af4a                            *
 //***************************************************************************
 
 // ISO C++ 98 headers.
@@ -23006,86 +23006,6 @@ namespace DUNE
       IMC::toJSON(os__, "z_units", z_units, nindent__);
       IMC::toJSON(os__, "z", z, nindent__);
       IMC::toJSON(os__, "accuracy", accuracy, nindent__);
-    }
-
-    UsblModem::UsblModem(void)
-    {
-      m_header.mgid = 901;
-      clear();
-    }
-
-    void
-    UsblModem::clear(void)
-    {
-      target.clear();
-      lat = 0;
-      lon = 0;
-      z_units = 0;
-      z = 0;
-    }
-
-    bool
-    UsblModem::fieldsEqual(const Message& msg__) const
-    {
-      const IMC::UsblModem& other__ = static_cast<const UsblModem&>(msg__);
-      if (target != other__.target) return false;
-      if (lat != other__.lat) return false;
-      if (lon != other__.lon) return false;
-      if (z_units != other__.z_units) return false;
-      if (z != other__.z) return false;
-      return true;
-    }
-
-    int
-    UsblModem::validate(void) const
-    {
-      return false;
-    }
-
-    uint8_t*
-    UsblModem::serializeFields(uint8_t* bfr__) const
-    {
-      uint8_t* ptr__ = bfr__;
-      ptr__ += IMC::serialize(target, ptr__);
-      ptr__ += IMC::serialize(lat, ptr__);
-      ptr__ += IMC::serialize(lon, ptr__);
-      ptr__ += IMC::serialize(z_units, ptr__);
-      ptr__ += IMC::serialize(z, ptr__);
-      return ptr__;
-    }
-
-    uint16_t
-    UsblModem::deserializeFields(const uint8_t* bfr__, uint16_t size__)
-    {
-      const uint8_t* start__ = bfr__;
-      bfr__ += IMC::deserialize(target, bfr__, size__);
-      bfr__ += IMC::deserialize(lat, bfr__, size__);
-      bfr__ += IMC::deserialize(lon, bfr__, size__);
-      bfr__ += IMC::deserialize(z_units, bfr__, size__);
-      bfr__ += IMC::deserialize(z, bfr__, size__);
-      return bfr__ - start__;
-    }
-
-    uint16_t
-    UsblModem::reverseDeserializeFields(const uint8_t* bfr__, uint16_t size__)
-    {
-      const uint8_t* start__ = bfr__;
-      bfr__ += IMC::reverseDeserialize(target, bfr__, size__);
-      bfr__ += IMC::reverseDeserialize(lat, bfr__, size__);
-      bfr__ += IMC::reverseDeserialize(lon, bfr__, size__);
-      bfr__ += IMC::deserialize(z_units, bfr__, size__);
-      bfr__ += IMC::reverseDeserialize(z, bfr__, size__);
-      return bfr__ - start__;
-    }
-
-    void
-    UsblModem::fieldsToJSON(std::ostream& os__, unsigned nindent__) const
-    {
-      IMC::toJSON(os__, "target", target, nindent__);
-      IMC::toJSON(os__, "lat", lat, nindent__);
-      IMC::toJSON(os__, "lon", lon, nindent__);
-      IMC::toJSON(os__, "z_units", z_units, nindent__);
-      IMC::toJSON(os__, "z", z, nindent__);
     }
   }
 }

@@ -26,7 +26,7 @@
 //***************************************************************************
 // Automatically generated.                                                 *
 //***************************************************************************
-// IMC XML MD5: 86a299b01f3fb2b07aa79ba59f7f24ec                            *
+// IMC XML MD5: c2f889e53b9d70fdd28a9f839289af4a                            *
 //***************************************************************************
 
 #ifndef DUNE_IMC_DEFINITIONS_HPP_INCLUDED_
@@ -21842,81 +21842,6 @@ namespace DUNE
       getFixedSerializationSize(void) const
       {
         return 25;
-      }
-
-      unsigned
-      getVariableSerializationSize(void) const
-      {
-        return IMC::getSerializationSize(target);
-      }
-
-      void
-      fieldsToJSON(std::ostream& os__, unsigned nindent__) const;
-    };
-
-    //! USBL Modem Fix.
-    class UsblModem: public Message
-    {
-    public:
-      //! Target.
-      std::string target;
-      //! Latitude (WGS-84).
-      fp64_t lat;
-      //! Longitude (WGS-84).
-      fp64_t lon;
-      //! Z Units.
-      uint8_t z_units;
-      //! Z Reference.
-      fp32_t z;
-
-      static uint16_t
-      getIdStatic(void)
-      {
-        return 901;
-      }
-
-      UsblModem(void);
-
-      Message*
-      clone(void) const
-      {
-        return new UsblModem(*this);
-      }
-
-      void
-      clear(void);
-
-      bool
-      fieldsEqual(const Message& msg__) const;
-
-      int
-      validate(void) const;
-
-      uint8_t*
-      serializeFields(uint8_t* bfr__) const;
-
-      uint16_t
-      deserializeFields(const uint8_t* bfr__, uint16_t size__);
-
-      uint16_t
-      reverseDeserializeFields(const uint8_t* bfr__, uint16_t size__);
-
-      uint16_t
-      getId(void) const
-      {
-        return UsblModem::getIdStatic();
-      }
-
-      const char*
-      getName(void) const
-      {
-        return "UsblModem";
-      }
-
-      unsigned
-      getFixedSerializationSize(void) const
-      {
-        return 21;
       }
 
       unsigned

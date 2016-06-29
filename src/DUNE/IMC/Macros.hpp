@@ -26,7 +26,7 @@
 //***************************************************************************
 // Automatically generated.                                                 *
 //***************************************************************************
-// IMC XML MD5: 86a299b01f3fb2b07aa79ba59f7f24ec                            *
+// IMC XML MD5: c2f889e53b9d70fdd28a9f839289af4a                            *
 //***************************************************************************
 
 #ifndef DUNE_IMC_MACROS_HPP_INCLUDED_
@@ -578,7 +578,5 @@
 #define DUNE_IMC_USBLPOSITIONEXTENDED 899
 //! UsblFixExtended identification number.
 #define DUNE_IMC_USBLFIXEXTENDED 900
-//! UsblModem identification number.
-#define DUNE_IMC_USBLMODEM 901
 
 #endif

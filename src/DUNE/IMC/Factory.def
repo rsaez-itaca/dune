@@ -26,7 +26,7 @@
 //***************************************************************************
 // Automatically generated.                                                 *
 //***************************************************************************
-// IMC XML MD5: 86a299b01f3fb2b07aa79ba59f7f24ec                            *
+// IMC XML MD5: c2f889e53b9d70fdd28a9f839289af4a                            *
 //***************************************************************************
 
 MESSAGE(1, EntityState)
@@ -302,5 +302,4 @@ MESSAGE(897, GetWorldCoordinates)
 MESSAGE(898, UsblAnglesExtended)
 MESSAGE(899, UsblPositionExtended)
 MESSAGE(900, UsblFixExtended)
-MESSAGE(901, UsblModem)
 #undef MESSAGE
